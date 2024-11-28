@@ -28,6 +28,8 @@ from game import Directions
 from util import nearest_point
 
 
+
+
 #################
 # Team creation #
 #################
@@ -135,29 +137,114 @@ class ReflexCaptureAgent(CaptureAgent):
         return {'successor_score': 1.0}
 
 
-class OffensiveReflexAgent(ReflexCaptureAgent):
+class OffensiveReflexAgent(CaptureAgent):
     """
-  A reflex agent that seeks food. This is an agent
-  we give you to get an idea of what an offensive agent might look like,
-  but it is by no means the best or only way to build an offensive agent.
-  """
+    A reflex agent that seeks food, avoids defenders, and returns food to its side.
+    """
+
+    def __init__(self, index):
+        super().__init__(index)
+        self.start = None
+
+    def register_initial_state(self, game_state):
+        """
+        Called once at the beginning of the game to initialize.
+        """
+        self.start = game_state.get_agent_position(self.index)
+        CaptureAgent.register_initial_state(self, game_state)
+
+    def choose_action(self, game_state):
+        """
+        Chooses an action based on the highest evaluation score.
+        """
+        actions = game_state.get_legal_actions(self.index)
+        values = [self.evaluate(game_state, action) for action in actions]
+        max_value = max(values)
+        best_actions = [a for a, v in zip(actions, values) if v == max_value]
+
+        return random.choice(best_actions)
+
+    def evaluate(self, game_state, action):
+        """
+        Computes a linear combination of features and weights.
+        """
+        features = self.get_features(game_state, action)
+        weights = self.get_weights(game_state, action)
+        return features * weights
 
     def get_features(self, game_state, action):
+        """
+        Returns a dictionary of features for the state-action pair.
+        """
         features = util.Counter()
         successor = self.get_successor(game_state, action)
+
+        # Current position
+        my_pos = successor.get_agent_state(self.index).get_position()
+
+        # Compute food-related features
         food_list = self.get_food(successor).as_list()
-        features['successor_score'] = -len(food_list)  # self.get_score(successor)
+        features['successor_score'] = -len(food_list)  # Negative score for remaining food
 
-        # Compute distance to the nearest food
-
-        if len(food_list) > 0:  # This should always be True,  but better safe than sorry
-            my_pos = successor.get_agent_state(self.index).get_position()
+        if len(food_list) > 0:  # Distance to nearest food
             min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
             features['distance_to_food'] = min_distance
+
+        # Compute defender-related features
+        defenders = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
+        ghosts = [a for a in defenders if not a.is_pacman and a.get_position() is not None]
+
+        if len(ghosts) > 0:  # Penalize being close to defenders
+            dists = [self.get_maze_distance(my_pos, ghost.get_position()) for ghost in ghosts]
+            features['distance_to_defender'] = min(dists)
+        else:
+            features['distance_to_defender'] = 10  # No visible defenders = safe
+
+        # Compute if agent is carrying food and close to home
+        carrying_food = successor.get_agent_state(self.index).num_carrying
+        features['carrying_food'] = carrying_food
+
+        if carrying_food > 0:  # Encourage returning home with food
+            home_distance = self.get_distance_to_home(successor, my_pos)
+            features['distance_to_home'] = home_distance
+
         return features
 
     def get_weights(self, game_state, action):
-        return {'successor_score': 100, 'distance_to_food': -1}
+        """
+        Assigns weights to features.
+        """
+        return {
+            'successor_score': 100,          # High priority for collecting food
+            'distance_to_food': -1,         # Move closer to food
+            'distance_to_defender': 10,     # Avoid defenders
+            'carrying_food': 100,           # High incentive for carrying food
+            'distance_to_home': -50         # Strongly encourage returning home with food
+        }
+
+    def get_successor(self, game_state, action):
+        """
+        Finds the next successor (resulting state from action).
+        """
+        successor = game_state.generate_successor(self.index, action)
+        return successor
+
+    def get_distance_to_home(self, game_state, position):
+        """
+        Computes the distance from the agent's position to the home boundary.
+        """
+        boundaries = self.get_home_boundaries(game_state)
+        return min([self.get_maze_distance(position, boundary) for boundary in boundaries])
+
+    def get_home_boundaries(self, game_state):
+        """
+        Returns the list of positions that represent the home boundary.
+        """
+        layout_width = game_state.data.layout.width
+        home_x = layout_width // 2 - 1 if self.red else (layout_width // 2)-1
+        height = game_state.data.layout.height
+
+        return [(home_x, y) for y in range(height) if not game_state.has_wall(home_x, y)]
 
 
 class DefensiveReflexAgent(ReflexCaptureAgent):

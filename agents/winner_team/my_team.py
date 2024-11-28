@@ -145,19 +145,48 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     def get_features(self, game_state, action):
         features = util.Counter()
         successor = self.get_successor(game_state, action)
+
+        # Food information
         food_list = self.get_food(successor).as_list()
-        features['successor_score'] = -len(food_list)  # self.get_score(successor)
+        features['successor_score'] = -len(food_list)  # Negative number of remaining food (more is better)
 
         # Compute distance to the nearest food
-
-        if len(food_list) > 0:  # This should always be True,  but better safe than sorry
+        if len(food_list) > 0:  # If there is food to collect
             my_pos = successor.get_agent_state(self.index).get_position()
             min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
             features['distance_to_food'] = min_distance
+
+            # If there are multiple food locations, consider the density of food
+            # More food in the vicinity means we should prioritize moving in that area
+            food_density = len(food_list) / float(game_state.get_walls().width * game_state.get_walls().height)
+            features['food_density'] = food_density  # Normalize this to a value between 0 and 1
+        else:
+            features['distance_to_food'] = float('inf')  # No food left, set to infinity
+
+        # Consider power capsules if available
+        power_capsules = game_state.get_capsules()  # Use get_capsules() instead of get_power_capsules
+        if len(power_capsules) > 0:
+            closest_capsule_dist = min([self.get_maze_distance(my_pos, capsule) for capsule in power_capsules])
+            features['close_to_capsule'] = closest_capsule_dist
+        else:
+            features['close_to_capsule'] = float('inf')  # No power capsule available
+
         return features
 
     def get_weights(self, game_state, action):
-        return {'successor_score': 100, 'distance_to_food': -1}
+        weights = {
+            'successor_score': 100,  # More food eaten is better (negative, so we want to minimize this)
+            'distance_to_food': -1,  # Closer to food is better (we want to minimize distance)
+            'food_density': -50,  # Prefer areas with more food
+            'close_to_capsule': -200  # If close to a capsule, it's very important to go after it
+        }
+
+        # Adjust behavior based on game state
+        if game_state.get_score() < 0:  # If losing, prioritize getting food quickly
+            weights['food_density'] = -100  # Focus more on food collection in this case
+
+        return weights
+    
 
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
