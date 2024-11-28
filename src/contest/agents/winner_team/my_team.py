@@ -139,7 +139,7 @@ class ReflexCaptureAgent(CaptureAgent):
 
 class OffensiveReflexAgent(CaptureAgent):
     """
-    A reflex agent that seeks food, avoids defenders, and returns food to its side.
+    A reflex agent that seeks food, avoids defenders, and prioritizes returning food to its base.
     """
 
     def __init__(self, index):
@@ -222,9 +222,9 @@ class OffensiveReflexAgent(CaptureAgent):
             home_distance = self.get_distance_to_home(successor, my_pos)
             features['distance_to_home'] = home_distance
 
-            # Strong penalty if stuck near home and not crossing
-            if home_distance < 3 and features['distance_to_defender'] < 3:
-                features['stuck_near_home'] = 1
+            # Strong penalty for not moving towards home while carrying food
+            if home_distance > 0:
+                features['not_moving_home'] = 1
 
         # Penalize oscillation if position is being revisited
         if my_pos in self.last_positions:
@@ -236,16 +236,33 @@ class OffensiveReflexAgent(CaptureAgent):
         """
         Assigns weights to features.
         """
-        return {
-            'successor_score': 100,          # High priority for collecting food
-            'distance_to_food': -1,         # Move closer to food
-            'distance_to_defender': 10,     # Avoid defenders
-            'too_close_to_ghost': -1000,    # Strongly avoid defenders close by
-            'carrying_food': 200,           # High incentive for carrying food
-            'distance_to_home': -50,        # Strongly encourage returning home with food
-            'stuck_near_home': -1000,       # Avoid being stuck near home
-            'revisit_penalty': -100         # Avoid revisiting positions
-        }
+        carrying_food = game_state.get_agent_state(self.index).num_carrying
+        food_list = self.get_food(game_state).as_list()
+        food_count = len(food_list)
+
+        # We adjust the weights based on whether the agent is carrying food
+        if carrying_food > 0:  # PRIORITY: Return food to base
+            return {
+                'successor_score': -200,          # Ignore collecting more food
+                'distance_to_food': -200,        # Ignore new food
+                'distance_to_defender': 10,   # Avoid defenders
+                'too_close_to_ghost': -1000,  # Strongly avoid defenders close by
+                'carrying_food': 200,         # High incentive for carrying food
+                'distance_to_home': -200,     # Strongly encourage returning home with food
+                'not_moving_home': -500,      # Penalize if not heading towards home
+                'revisit_penalty': -400       # Avoid revisiting positions
+            }
+        else:  # PRIORITY: Find food
+            return {
+                'successor_score': 100,          # High priority for collecting food
+                'distance_to_food': -5,         # Move closer to food
+                'distance_to_defender': 10,     # Avoid defenders
+                'too_close_to_ghost': -1000,    # Strongly avoid defenders close by
+                'carrying_food': 0,             # No incentive for carrying food
+                'distance_to_home': 0,          # Ignore home when not carrying food
+                'not_moving_home': 0,           # Ignore this case when not carrying food
+                'revisit_penalty': -100         # Avoid revisiting positions
+            }
 
     def get_successor(self, game_state, action):
         """
@@ -278,18 +295,19 @@ class OffensiveReflexAgent(CaptureAgent):
         pos = game_state.generate_successor(self.index, action).get_agent_state(self.index).get_position()
         self.last_positions.append(pos)
 
-        # Keep track of the last 5 positions onlyy
+        # Keep track of the last 5 positions only
         if len(self.last_positions) > 5:
             self.last_positions.pop(0)
 
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
     """
-    A reflex agent that keeps its side Pacman-free. Again,
-    this is to give you an idea of what a defensive agent
-    could be like.  It is not the best or only way to make
-    such an agent.
+    Un agente defensor diseñado para eliminar pacman enemigos.
+    Su único objetivo es detectar y perseguir a los invasores hasta erradicarlos.
     """
+
+    def __init__(self, index):
+        super().__init__(index)
 
     def get_features(self, game_state, action):
         features = util.Counter()
@@ -298,23 +316,64 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         my_state = successor.get_agent_state(self.index)
         my_pos = my_state.get_position()
 
-        # Computes whether we're on defense (1) or offense (0)
+        # Si estamos en defensa (y no somos pacman)
         features['on_defense'] = 1
-        if my_state.is_pacman: features['on_defense'] = 0
+        if my_state.is_pacman:
+            features['on_defense'] = 0
 
-        # Computes distance to invaders we can see
+        # Encuentra los invasores (pacman enemigos)
         enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
         invaders = [a for a in enemies if a.is_pacman and a.get_position() is not None]
         features['num_invaders'] = len(invaders)
-        if len(invaders) > 0:
-            dists = [self.get_maze_distance(my_pos, a.get_position()) for a in invaders]
-            features['invader_distance'] = min(dists)
 
-        if action == Directions.STOP: features['stop'] = 1
+        if len(invaders) > 0:
+            # Calcula la distancia al invasor más cercano
+            invader_distances = [self.get_maze_distance(my_pos, a.get_position()) for a in invaders]
+            closest_invader_distance = min(invader_distances)
+            features['invader_distance'] = closest_invader_distance
+
+            # Si estamos muy cerca del invasor (distancia 1), es hora de capturarlo
+            if closest_invader_distance == 1:
+                features['capture_invader'] = 100  # Alta recompensa por capturar un invader
+            else:
+                features['capture_invader'] = 0  # Si no está cerca, no hay recompensa
+
+            # La prioridad es perseguir al invasor
+            features['pursuit'] = -closest_invader_distance  # Penaliza más lejos del invasor
+
+        else:
+            # Si no hay invasores, la "distancia al invasor" es arbitraria
+            features['invader_distance'] = 10
+            features['pursuit'] = 0
+
+        # Penaliza detenerse (debemos estar en movimiento)
+        if action == Directions.STOP:
+            features['stop'] = 1
+
+        # Penaliza si nos damos la vuelta (reversa), no tiene sentido en este contexto
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
-        if action == rev: features['reverse'] = 1
+        if action == rev:
+            features['reverse'] = 1
 
         return features
 
     def get_weights(self, game_state, action):
-        return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -10, 'stop': -100, 'reverse': -2}
+        """
+        Los pesos de las características. Se enfoca en la persecución de invaders.
+        """
+        return {
+            'num_invaders': -1000,            # Penaliza si hay invasores no detectados
+            'on_defense': 500,                # Alta prioridad en defender
+            'invader_distance': -100,          # Mientras más cerca de un invasor, mejor
+            'pursuit': -5,                    # Penaliza cuando estamos más lejos de un invasor
+            'capture_invader': 1000,          # Recompensa por capturar un invader
+            'stop': -100000,                     # Penaliza detenerse (no podemos quedarnos quietos)
+            'reverse': -50                    # Penaliza dar marcha atrás
+        }
+
+    def get_successor(self, game_state, action):
+        """
+        Encuentra el sucesor (el estado resultante de la acción).
+        """
+        successor = game_state.generate_successor(self.index, action)
+        return successor
