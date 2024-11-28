@@ -145,6 +145,7 @@ class OffensiveReflexAgent(CaptureAgent):
     def __init__(self, index):
         super().__init__(index)
         self.start = None
+        self.last_positions = []  # To track repetitive movements
 
     def register_initial_state(self, game_state):
         """
@@ -162,7 +163,12 @@ class OffensiveReflexAgent(CaptureAgent):
         max_value = max(values)
         best_actions = [a for a, v in zip(actions, values) if v == max_value]
 
-        return random.choice(best_actions)
+        chosen_action = random.choice(best_actions)
+
+        # Track positions to avoid oscillations
+        self.track_position(game_state, chosen_action)
+
+        return chosen_action
 
     def evaluate(self, game_state, action):
         """
@@ -182,6 +188,9 @@ class OffensiveReflexAgent(CaptureAgent):
         # Current position
         my_pos = successor.get_agent_state(self.index).get_position()
 
+        # Debug: Draw the agent's planned path
+        self.debug_draw([my_pos], [0, 0, 1], clear=False)
+
         # Compute food-related features
         food_list = self.get_food(successor).as_list()
         features['successor_score'] = -len(food_list)  # Negative score for remaining food
@@ -196,7 +205,12 @@ class OffensiveReflexAgent(CaptureAgent):
 
         if len(ghosts) > 0:  # Penalize being close to defenders
             dists = [self.get_maze_distance(my_pos, ghost.get_position()) for ghost in ghosts]
-            features['distance_to_defender'] = min(dists)
+            min_defender_distance = min(dists)
+            features['distance_to_defender'] = min_defender_distance
+
+            # Penalize if too close to defenders
+            if min_defender_distance < 3:
+                features['too_close_to_ghost'] = 1
         else:
             features['distance_to_defender'] = 10  # No visible defenders = safe
 
@@ -208,6 +222,14 @@ class OffensiveReflexAgent(CaptureAgent):
             home_distance = self.get_distance_to_home(successor, my_pos)
             features['distance_to_home'] = home_distance
 
+            # Strong penalty if stuck near home and not crossing
+            if home_distance < 3 and features['distance_to_defender'] < 3:
+                features['stuck_near_home'] = 1
+
+        # Penalize oscillation if position is being revisited
+        if my_pos in self.last_positions:
+            features['revisit_penalty'] = 1
+
         return features
 
     def get_weights(self, game_state, action):
@@ -218,8 +240,11 @@ class OffensiveReflexAgent(CaptureAgent):
             'successor_score': 100,          # High priority for collecting food
             'distance_to_food': -1,         # Move closer to food
             'distance_to_defender': 10,     # Avoid defenders
-            'carrying_food': 100,           # High incentive for carrying food
-            'distance_to_home': -50         # Strongly encourage returning home with food
+            'too_close_to_ghost': -1000,    # Strongly avoid defenders close by
+            'carrying_food': 200,           # High incentive for carrying food
+            'distance_to_home': -50,        # Strongly encourage returning home with food
+            'stuck_near_home': -1000,       # Avoid being stuck near home
+            'revisit_penalty': -100         # Avoid revisiting positions
         }
 
     def get_successor(self, game_state, action):
@@ -241,10 +266,21 @@ class OffensiveReflexAgent(CaptureAgent):
         Returns the list of positions that represent the home boundary.
         """
         layout_width = game_state.data.layout.width
-        home_x = layout_width // 2 - 1 if self.red else (layout_width // 2)-1
+        home_x = layout_width // 2 - 1 if self.red else layout_width // 2
         height = game_state.data.layout.height
 
         return [(home_x, y) for y in range(height) if not game_state.has_wall(home_x, y)]
+
+    def track_position(self, game_state, action):
+        """
+        Tracks the last few positions to avoid oscillations.
+        """
+        pos = game_state.generate_successor(self.index, action).get_agent_state(self.index).get_position()
+        self.last_positions.append(pos)
+
+        # Keep track of the last 5 positions only
+        if len(self.last_positions) > 5:
+            self.last_positions.pop(0)
 
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
