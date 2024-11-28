@@ -278,7 +278,7 @@ class OffensiveReflexAgent(CaptureAgent):
         pos = game_state.generate_successor(self.index, action).get_agent_state(self.index).get_position()
         self.last_positions.append(pos)
 
-        # Keep track of the last 5 positions only
+        # Keep track of the last 5 positions onlyy
         if len(self.last_positions) > 5:
             self.last_positions.pop(0)
 
