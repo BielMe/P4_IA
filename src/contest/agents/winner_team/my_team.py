@@ -329,9 +329,10 @@ class OffensiveReflexAgent(CaptureAgent):
         - Sin comida: buscar comida (evitar fantasmas).
         - Con comida: regresar a casa, pero recoger comida muy cercana en el camino.
         """
-        carrying_food = (20-len(self.get_food(game_state).as_list()))
+        carrying_food = game_state.get_agent_state(self.index).num_carrying
         food_list = self.get_food(game_state).as_list()
         my_pos = game_state.get_agent_state(self.index).get_position()
+        print(carrying_food)
 
         # 1. Sin comida (buscar comida)
         if carrying_food == 0:
