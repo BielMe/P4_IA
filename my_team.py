@@ -297,25 +297,10 @@ class OffensiveReflexAgent(CaptureAgent):
             min_defender_distance = min(dists)
             features['distance_to_defender'] = min_defender_distance
 
-            carrying_food = successor.get_agent_state(self.index).num_carrying
-            
-
             # Penaliza si estamos demasiado cerca de los fantasmas
-            if min_defender_distance < 4 and carrying_food > 0:
-                home_distance = self.get_distance_to_home(successor, my_pos)
-
-                features['distance_to_home'] = 1
-                if home_distance > 0:
-                    features['not_moving_home'] = 1
-
+            if min_defender_distance < 2:
                 features['too_close_to_ghost'] = 1  # Muy cerca de un fantasma
-            elif min_defender_distance < 6:
-                home_distance = self.get_distance_to_home(successor, my_pos)
-
-                features['distance_to_home'] = 1
-                if home_distance > 0:
-                    features['not_moving_home'] = 1
-                
+            elif min_defender_distance < 4:
                 features['too_close_to_ghost'] = 0.5  # Distancia moderada, pero aún peligroso
         else:
             features['distance_to_defender'] = 10  # Sin defensores visibles, es seguro
@@ -324,14 +309,13 @@ class OffensiveReflexAgent(CaptureAgent):
         carrying_food = successor.get_agent_state(self.index).num_carrying
         features['carrying_food'] = carrying_food
 
-        if carrying_food > 3:  # Fomentar regresar a casa con la comida
+        if carrying_food > 0:  # Fomentar regresar a casa con la comida
             home_distance = self.get_distance_to_home(successor, my_pos)
             features['distance_to_home'] = home_distance
 
             # Penaliza fuertemente si no nos movemos hacia casa
             if home_distance > 0:
                 features['not_moving_home'] = 1
-        
 
         # Penaliza la oscilación si se está visitando la misma posición
         if my_pos in self.last_positions:
@@ -345,18 +329,9 @@ class OffensiveReflexAgent(CaptureAgent):
         - Sin comida: buscar comida (evitar fantasmas).
         - Con comida: regresar a casa, pero recoger comida muy cercana en el camino.
         """
-        my_pos = game_state.get_agent_state(self.index).get_position()
-
-        successor = self.get_successor(game_state, action)
-        defenders = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
-        ghosts = [a for a in defenders if not a.is_pacman and a.get_position() is not None]
-        if len(ghosts) > 0:
-            min_defender_distance = min([self.get_maze_distance(my_pos, ghost.get_position()) for ghost in ghosts]) 
-        
-
         carrying_food = game_state.get_agent_state(self.index).num_carrying
         food_list = self.get_food(game_state).as_list()
-        
+        my_pos = game_state.get_agent_state(self.index).get_position()
         print(carrying_food)
 
         # 1. Sin comida (buscar comida)
@@ -376,34 +351,31 @@ class OffensiveReflexAgent(CaptureAgent):
         # 2. Si estamos cargando comida
         else:
             # Si hay comida MUY cerca (priorizar recogerla si está a un paso)
+            
             min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
 
-                  
-                    
-                      
-            if min_distance <=4:
+            if min_distance <=3:
                 return {
-                    'successor_score': 100,          # Alta prioridad por conseguir comida
-                    'distance_to_food': -10,         # Fuerte incentivo para acercarse a la comida
-                    'distance_to_defender': 10,      # Evitar defensores
-                    'too_close_to_ghost': -1000,     # Alta penalización por acercarse a los fantasmas
-                    'carrying_food': 0,              # No hay comida que cargar
-                    'distance_to_home': 0,           # Ignorar casa cuando no se lleva comida
-                    'not_moving_home': 0,            # Ignorar este caso cuando no llevamos comida
-                    'revisit_penalty': -200,         # Penaliza por revisitar posiciones anteriores
-                    }
-            elif min_distance > 4:
+                'successor_score': 100,          # Alta prioridad por conseguir comida
+                'distance_to_food': -10,         # Fuerte incentivo para acercarse a la comida
+                'distance_to_defender': 10,      # Evitar defensores
+                'too_close_to_ghost': -1000,     # Alta penalización por acercarse a los fantasmas
+                'carrying_food': 0,              # No hay comida que cargar
+                'distance_to_home': 0,           # Ignorar casa cuando no se lleva comida
+                'not_moving_home': 0,            # Ignorar este caso cuando no llevamos comida
+                'revisit_penalty': -200,         # Penaliza por revisitar posiciones anteriores
+                }
+            else:
                 return {
-                    'successor_score': -100000,         # Prioridad baja para la comida (ya llevamos)
+                    'successor_score': -100,         # Prioridad baja para la comida (ya llevamos)
                     'distance_to_food': -100,        # Ignorar comida cuando ya la llevamos
                     'distance_to_defender': 10,      # Evitar defensores
                     'too_close_to_ghost': -1000,     # Huir de los fantasmas
                     'carrying_food': 200,            # Incentivar llevar comida
-                    'distance_to_home': -300,        # Priorizar regresar a casa
-                    'not_moving_home': -1000,        # Fuerte penalización si no vamos a casa
+                    'distance_to_home': -3000,        # Priorizar regresar a casa
+                    'not_moving_home': -10000,        # Fuerte penalización si no vamos a casa
                     'revisit_penalty': -200,         # Penaliza revisitar posiciones
                 }
-
 
     def get_successor(self, game_state, action):
         """
