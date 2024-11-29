@@ -351,22 +351,23 @@ class OffensiveReflexAgent(CaptureAgent):
         # 2. Si estamos cargando comida
         else:
             # Si hay comida MUY cerca (priorizar recogerla si está a un paso)
-            very_close_food = [food for food in food_list if self.get_maze_distance(my_pos, food) <= 2]
+            
+            min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
 
-            if very_close_food:
+            if min_distance <=4:
                 return {
-                    'successor_score': -100,          # Alta prioridad por comida cercana
-                    'distance_to_food': -15,         # Incentivar acercarse a comida cercana
-                    'distance_to_defender': 15,      # Evitar defensores
-                    'too_close_to_ghost': -1000,     # Huir de fantasmas
-                    'carrying_food': 200,            # Incentivar cargar comida
-                    'distance_to_home': -100,        # Aún podemos recoger comida, pero seguimos priorizando ir a casa
-                    'not_moving_home': -500,         # Penaliza si no vamos hacia casa
-                    'revisit_penalty': -200,         # Penaliza revisitar posiciones
+                'successor_score': 100,          # Alta prioridad por conseguir comida
+                'distance_to_food': -10,         # Fuerte incentivo para acercarse a la comida
+                'distance_to_defender': 10,      # Evitar defensores
+                'too_close_to_ghost': -1000,     # Alta penalización por acercarse a los fantasmas
+                'carrying_food': 0,              # No hay comida que cargar
+                'distance_to_home': 0,           # Ignorar casa cuando no se lleva comida
+                'not_moving_home': 0,            # Ignorar este caso cuando no llevamos comida
+                'revisit_penalty': -200,         # Penaliza por revisitar posiciones anteriores
                 }
             else:
                 return {
-                    'successor_score': -100,         # Prioridad baja para la comida (ya llevamos)
+                    'successor_score': -100000,         # Prioridad baja para la comida (ya llevamos)
                     'distance_to_food': -100,        # Ignorar comida cuando ya la llevamos
                     'distance_to_defender': 10,      # Evitar defensores
                     'too_close_to_ghost': -1000,     # Huir de los fantasmas
